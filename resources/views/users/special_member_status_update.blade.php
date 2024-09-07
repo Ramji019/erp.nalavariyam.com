@@ -1,0 +1,118 @@
+@extends('layouts.app')
+@section('content')
+<section class="content">
+    <div class="container-fluid">
+      <section class="hero set-bg">
+      </br>
+  </br>
+</br>
+</br>
+</br>
+</br>
+</br>
+</br>
+
+<div class="container"><center>
+    @if($status != "Active")
+    <h2>Activate special member</h2></br>
+    <input onclick="pay_now()" type="button" value="Pay Now" class="btn btn-primary">
+    <input value="{{ $payment_amount }}" type="hidden" name="payment_amount" id="payment_amount" />
+    @else
+    <h2>This user account is active</h2>
+    @endif
+</center>
+</div>
+</section>
+
+<div class="modal fade" id="paynow_modal">
+    <form action="{{ url('/specialmemberactivate') }}" method="post">
+        {{ csrf_field() }}
+        <input type="hidden" name="user_id" value="{{ $id }}">
+        <input type="hidden" name="full_name" value="{{ $full_name }}">
+        <input value="{{ $payment_amount }}" type="hidden" name="payment_amount" id="payment_amount" />
+        <input value="{{ $balance }}" type="hidden" name="wallet_amount" id="wallet_amount" />
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h4 class="modal-title">Pay Now</h4>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group row">
+                        <label class="col-sm-4 col-form-label"><span style="color:red">*</span>Amount</label>
+                        <div class="col-sm-8">
+                            <input readonly value="{{ $payment_amount }}" name="pay_amount" id="pay_amount" required="required"  maxlength="50" class="form-control number" />
+                        </div>
+                    </div>
+                    <div class="modal-footer justify-content-between">
+                        <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                        <input class="btn btn-primary" type="submit" value="Submit" />
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+
+<div class="modal fade" id="referral_modal">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title">Pay Now</h4>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+               <center>
+                {{ $referral->full_name ?? '' }}</br>
+                {{ $referral->phone ?? '' }}</br>
+                {{ $referral->upi ?? '' }}</br>
+                <img style="width:200px" src="{{ URL::to('/') }}/upload/qrcodeimg/{{ $referral->payment_qr_oode ?? '' }}"/>
+            </center>
+            <form onsubmit="return validateamount()" action="{{ url('requestamount') }}" method="post" enctype="multipart/form-data">
+                {{ csrf_field() }}
+                <div class="form-group row">
+                    <label for="" class="col-sm-12 col-form-label"><span
+                        style="color:red"></span>Request Amount</label>
+                        <input  type="text" class="form-control number" name="amount" placeholder='Enter Request Amount' required="required">
+                    </div>
+                    <div class="form-group">
+                        <label for="" class="col-sm-12 col-form-label"><span
+                            style="color:red"></span>Paid Image(ScreenShot)</label>
+                            <div class="custom-file">
+                                <input accept="image/png,image/jpeg,image/jpg" type="file" class="custom-file-input" name="paid_image" required="required">
+                                <label class="custom-file-label" for="customFile">Choose file</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer justify-content-between">
+                        <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                        <input class="btn btn-primary" type="submit" value="Submit" />
+                    </div>
+                    
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+</div>
+</div>
+
+@endsection
+@push('page_scripts')
+<script>
+    function pay_now(){
+        var wallet_amount = parseFloat($("#wallet_amount").val());
+        var payment_amount = parseFloat($("#payment_amount").val());
+        $("#pay_amount").val(payment_amount);
+        if(payment_amount > wallet_amount){
+            $("#referral_modal").modal("show");
+        }else{
+            $("#paynow_modal").modal("show");
+        }
+    }
+</script>
+@endpush

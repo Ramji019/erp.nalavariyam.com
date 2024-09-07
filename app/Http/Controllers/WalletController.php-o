@@ -1,0 +1,488 @@
+<?php
+namespace App\Http\Controllers;
+use Auth;
+use Hash;
+use App\WalletHelper;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+
+class WalletController extends Controller
+{ 
+    public function __construct()
+    {
+        $this->middleware( 'auth' );
+    }
+
+    public function index( $from, $to)
+    {
+        $balance =  WalletHelper::wallet_balance(Auth::user()->username);
+
+        $login = Auth::user()->id;
+        $referral_id = Auth::user()->referral_id;
+        $user_id = Auth::user()->id;
+        $sql="select * from transaction_history where to_id=$login and paydate >= '$from' and paydate <= '$to' and (service_entity = 'nalavariyam' or service_entity is NULL) order by id desc";
+        $wallet = DB::select($sql);
+        //$wallet = DB::table( 'payment' )->where( 'from_id', $login )->where( 'paydate', '>=', $from )->where( 'paydate', '<=', $to )->orderBy( 'paydate', 'Desc' )->get();
+
+        if(Auth::user()->id == 1 || Auth::user()->id == 2 || Auth::user()->id == 3){
+            $sql = "Select * from `users` where `id` = 1 order by `id` desc limit 1 ";
+        }else{
+            $sql = "Select * from `users` where `id` = $referral_id order by `id` desc limit 1 ";
+        }   
+        $referencedata = DB::select( DB::raw( $sql ) );
+
+        if ( Auth::user()->user_type_id == 1 ) {
+            $sql = 'Select * from `users`';
+        } else if ( ( Auth::user()->user_type_id == 16 ) || ( Auth::user()->user_type_id == 17 ) ){
+            $assigned_user_id = Auth::user()->id;
+            $sql = "select * from users where assigned_user_id= $assigned_user_id";
+        } else {
+            $sql = "Select * from `users` where `referral_id` = $user_id";
+        }
+        $userpayment = DB::select( DB::raw( $sql ) );
+
+
+        $sql = "select status from request_payment where from_id=$login and status='Pending'";
+        $paymentrequest =  DB::select( DB::raw( $sql ));
+        $status ="";
+        if(count($paymentrequest) > 0){
+            $status = $paymentrequest[0]->status;
+        }
+
+        return view( 'wallet/index', compact( 'wallet', 'referencedata', 'userpayment', 'from', 'to', 'status','balance' ) );
+    }
+
+    public function walletamount()
+    {
+        if ( Auth::user()->user_type_id == 1 ) {
+            $walletamount = DB::table( 'users' )->select('users.full_name','users.phone','users.id','wallet_users.wallet','wallet_users.deposit','wallet_users.commission')->join('wallet_users','wallet_users.username','users.username')->orderBy( 'wallet_users.wallet', 'Desc' )->whereNotIn('users.id', array('1','2','3'))->get();
+        }
+        //dd($walletamount);
+        return view( 'wallet/walletamount', compact('walletamount') );
+    } 
+
+    public function allwallet( $from, $to)
+    {
+        $login = Auth::user()->id;
+        $user_id = Auth::user()->id;
+        if ( Auth::user()->user_type_id == 1 ) {
+            $wallet = DB::table( 'payment' )->orderBy( 'paydate', 'Desc' )->where( 'paydate', '>=', $from )->where( 'paydate', '<=', $to )->get();
+        }
+
+        return view( 'wallet/allwallet', compact( 'wallet', 'from', 'to' ) );
+    } 
+
+    public function superadminaddwallet( Request $request )
+    {      
+        $from = date('Y-m-d' ,strtotime('-1 days'));
+        $to =  date('Y-m-d');
+        $amount = $request->fundamount;
+        $login_id = Auth::user()->id;
+        $date = date( 'Y-m-d' );
+        $time = date( 'H:i:s' );
+        $ad_info = 'Fund Transfer';
+        $service_status = 'IN Payment';
+        $sql = "insert into payment (log_id,from_id,to_id,amount,ad_info,service_status,time,paydate,service_entity) values ('$login_id','$login_id','$login_id','$amount','$ad_info', '$service_status','$time','$date','nalavariyam')";
+        DB::insert( DB::raw( $sql ) );
+        $sql = "select username from users where id=1";
+        $result =  DB::select( DB::raw( $sql ));
+        $susername = $result[0]->username;
+        $sql = "update wallet_users set wallet = wallet + $amount where username = '$susername'";
+        DB::update( DB::raw( $sql ) );
+        return redirect( "wallet/$from/$to" );
+
+    }
+
+    public function addwallet( Request $request )
+    {
+        $from = date('Y-m-d' ,strtotime('-1 days'));
+        $to =  date('Y-m-d');
+        $to_user = $request->user_id;
+        $amount = $request->transfer_payment;
+        $login_id = Auth::user()->id;
+        $date = date( 'Y-m-d' );
+        $time = date( 'H:i:s' );
+        $ad_info = 'Fund Transfer';
+        $ad_info2 = "FundTransfer";
+        $service_status = 'Out Payment';
+        $message = 'Fund Transfer';
+        $sql = "insert into payment (log_id,from_id,to_id,amount,ad_info,service_status,time,paydate,ad_info2,message,service_entity) values ('$login_id','$login_id','$to_user','$amount','$ad_info', '$service_status','$time','$date','$ad_info2','$message','nalavariyam')";
+        DB::insert( DB::raw( $sql ) );
+        $insertid = DB::getPdo()->lastInsertId();
+        $sql = "update payment set pay_id = $insertid where id = $insertid";
+        DB::update( DB::raw( $sql ) );
+        $sql = "select username from users where id=$to_user";
+        $result =  DB::select( DB::raw( $sql ));
+        $username = $result[0]->username;
+        $sql = "update wallet_users set wallet=wallet+$amount,deposit=deposit+$amount where username='$username'";
+        DB::update($sql);
+        $service_status = 'IN Payment';
+        $ad_info2 = "FundTransfer";
+        $message = "Fund Transfer";
+        $sql = "insert into payment (log_id,from_id,to_id,amount,ad_info,service_status,time,paydate,pay_id,ad_info2,message,service_entity) values ('$login_id','$to_user','$login_id','$amount','$ad_info', '$service_status','$time','$date','$insertid','$ad_info2','$message','nalavariyam')";
+        DB::insert( DB::raw( $sql ) );
+        WalletHelper::debitWallet2('RJ01N001',$amount);
+        //$sql = "update users set wallet = wallet - $amount where id = $login_id";
+        //DB::update( DB::raw( $sql ) );
+        return redirect( "wallet/$from/$to" );
+
+    }
+
+    public function servicepaymentdelete( $payid ) {
+        $from = date('Y-m-d' ,strtotime('-1 days'));
+        $to =  date('Y-m-d');
+        $sql = "select * from payment where pay_id='$payid' and ad_info2='ServicePayment'";
+        $result =  DB::select( DB::raw( $sql ));
+        $service_status = $result[0]->service_status;
+        $amount = $result[0]->amount;
+        $from_user = $result[0]->from_id;
+        $to_user = $result[0]->to_id;
+
+        $sql1 = "select sum(amount) as sumamount from payment where pay_id='$payid' and ad_info2='ServicePayment'";
+
+        $result =  DB::select( DB::raw( $sql1 ));
+        $sumamount = $result[0]->sumamount;
+
+        $sql = "update users set wallet = wallet + $sumamount where id = $from_user";
+        DB::update( DB::raw( $sql ) );
+        $sql = "update users set wallet = wallet - $amount where id = $to_user";
+        DB::update( DB::raw( $sql ) );
+        $sql = "delete from payment where pay_id=$payid";
+        DB::delete( DB::raw( $sql ) );
+        $sql = "delete from payments where id=$payid";
+        DB::delete( DB::raw( $sql ) );
+        return redirect( "wallet/$from/$to" )->with( 'success', 'Payment Deleted Successfully' );
+    }
+
+    public function transferpaymentdelete( $payid ) {
+        $from = date('Y-m-d' ,strtotime('-1 days'));
+        $to =  date('Y-m-d');
+        $sql = "select * from payment where pay_id='$payid' and ad_info2='FundTransfer'";
+        $result =  DB::select( DB::raw( $sql ));
+        $service_status = $result[0]->service_status;
+        $amount = $result[0]->amount;
+        $from_user = $result[0]->from_id;
+        $to_user = $result[0]->to_id;
+        $sql = "update users set wallet = wallet + $amount where id = $from_user";
+        DB::update( DB::raw( $sql ) );
+        $sql = "update users set wallet = wallet - $amount where id = $to_user";
+        DB::update( DB::raw( $sql ) );
+        $sql = "delete from payment where pay_id=$payid";
+        DB::delete( DB::raw( $sql ) );
+        return redirect( "wallet/$from/$to" )->with( 'success', 'Payment Deleted Successfully' );
+    }
+
+
+    public function requestamount(Request $request) {
+
+        $amount = $request->amount;
+        $login_id = Auth::user()->id;
+        $device_id = "";
+        if ( Auth::user()->user_type_id == 2 || Auth::user()->user_type_id == 3) {
+           $to_user = 1;
+           $device_token = DB::table( 'users' )->where( 'id', '=', $to_user )->get();
+           $device_id = $device_token[0]->device_id;
+       } else {
+           $to_user = Auth::user()->referral_id;
+           $device_token = DB::table( 'users' )->where( 'id', '=', $to_user )->get();
+           $device_id = $device_token[0]->device_id;
+       }
+
+       $date = date( 'Y-m-d' );
+       $time = date( 'H:i:s' );
+       $ad_info = 'Fund Transfer';
+       $ad_info2 = "FundTransfer";
+       $service_status = 'RequestAmount';
+       $sql = "insert into payment (log_id,from_id,to_id,amount,ad_info,service_status,time,paydate,ad_info2) values ('$login_id','$login_id','$to_user','$amount','$ad_info', '$service_status','$time','$date','$ad_info2')";
+       DB::insert( DB::raw( $sql ) );
+
+       $insertid = DB::getPdo()->lastInsertId();
+       $paid_image ="";
+       if($request->paid_image != null){
+           $paid_image = $insertid.'.'.$request->file('paid_image')->extension(); 
+           $filepath = public_path('upload'.DIRECTORY_SEPARATOR.'paidimage'.DIRECTORY_SEPARATOR);
+           move_uploaded_file($_FILES['paid_image']['tmp_name'], $filepath.$paid_image);
+           $sql = "update payment set paid_image='$paid_image' where id = $insertid";
+           DB::update(DB::raw($sql));
+       }
+       $url = 'https://fcm.googleapis.com/fcm/send';
+   //'to' for single user
+   //'registration_ids' for multiple users
+       $weburl =  '';
+   //base_url( 'payments/pending' );
+       $message = "You Have a Request of Amount"." ". $amount;
+
+       $title = 'Nalavaryam';
+       $body = $message;
+       $icon = 'Nalavaryam';
+       $click_action = $weburl;
+
+       if ( isset( $title ) && !empty( $title ) )
+       {
+         $fields = array(
+             'to'=>$device_id,
+             'notification'=>array(
+                 'body'=>$body,
+                 'title'=>$title,
+                 'icon'=>$icon,
+                 'click_action'=>$click_action
+             )
+         );
+       //print_r( $fields );
+       //exit;
+
+         $headers = array(
+             'Authorization: key=AAAABIWWI_c:APA91bGf79FDnwnPw1FgpFkVlryHBvf3F1hhi0uwfRPuZRV7jEKu4Hggezwbl61FBxpkeauYs13Gbmsu5xzZxQcGVKRs7k8LJOUZoUI7fw2QkZGBrzNW_r7192r6DrzV2X269LEzz27M',
+             'Content-Type:application/json'
+         );
+
+         $ch = curl_init();
+         curl_setopt( $ch, CURLOPT_URL, $url );
+         curl_setopt( $ch, CURLOPT_POST, true );
+         curl_setopt( $ch, CURLOPT_HTTPHEADER, $headers );
+         curl_setopt( $ch, CURLOPT_RETURNTRANSFER, true );
+         curl_setopt( $ch, CURLOPT_POSTFIELDS, json_encode( $fields ) );
+         $result = curl_exec( $ch );
+         curl_close( $ch );
+
+       //print_r( $registrationIds );
+     }
+
+
+     return redirect( "viewrequestamount" )->with( 'success', 'Request Amount  Successfully' );
+ }
+
+
+
+ public function viewrequestamount()
+ {
+    $balance =  WalletHelper::wallet_balance(Auth::user()->username);
+
+    $login = Auth::user()->id;
+    $referral_id = Auth::user()->referral_id;
+    $service_status = 'RequestAmount';
+    $sql = "select * from request_payment where from_id=$login or to_id = $login order by `status` desc";
+    $paymentrequest =  DB::select( DB::raw( $sql ));
+
+
+    if(Auth::user()->id == 1 || Auth::user()->id == 2 || Auth::user()->id == 3){
+        $sql = "Select * from `users` where `id` = 1 order by `id` desc limit 1 ";
+    }else{
+        $sql = "Select * from `users` where `id` = $referral_id order by `id` desc limit 1 ";
+    }   
+    $referencedata = DB::select( DB::raw( $sql ) );
+
+    return view( 'wallet.viewrequestamount', compact( 'paymentrequest','referencedata','balance') );
+}
+
+public function requestamount_approve(Request $request) {
+
+    $amount = $request->amount;
+    $from_id = $request->from_id;
+    $row_id = $request->row_id;
+    $login_id = Auth::user()->id;
+    $date = date( 'Y-m-d' );
+    $time = date( 'H:i:s' );
+    $status = 'Approved';
+    $sql = "update request_payment set status = '$status' where id = $row_id";
+    DB::update( DB::raw( $sql ) );
+    $service_status = 'Out Payment';
+    $ad_info = 'Fund Transfer';
+    $sql = "insert into payment (log_id,from_id,to_id,amount,ad_info,service_status,time,paydate,pay_id,service_entity) values ('$login_id','$login_id','$from_id','$amount','$ad_info', '$service_status','$time','$date','$row_id','nalavariyam')";
+    DB::insert( DB::raw( $sql ) );
+    $sql = "select username from users where id=$from_id ";
+    $result =  DB::select( DB::raw( $sql ));
+    $fusername = $result[0]->username;
+    $sql = "update wallet_users set wallet = wallet + $amount,deposit = deposit + $amount where username = '$fusername'";
+    DB::update( DB::raw( $sql ) );
+    $service_status = 'IN Payment';
+    $ad_info = 'Fund Transfer';
+    $sql = "insert into payment (log_id,from_id,to_id,amount,ad_info,service_status,time,paydate,pay_id,service_entity) values ('$login_id','$from_id','$login_id','$amount','$ad_info', '$service_status','$time','$date','$row_id','nalavariyam')";
+    DB::insert( DB::raw( $sql ) );
+    $sql = "select username from users where id=$login_id ";
+    $result =  DB::select( DB::raw( $sql ));
+    $logusername = $result[0]->username;
+    WalletHelper::debitWallet2($logusername,$amount);
+        //$sql = "update users set wallet = wallet - $amount where id = $login_id";
+        //DB::update( DB::raw( $sql ) );
+
+    $device_id = "";
+    $device_token = DB::table( 'users' )->where( 'id', '=', $from_id )->get();
+    $device_id = $device_token[0]->device_id;
+
+    $url = 'https://fcm.googleapis.com/fcm/send';
+   //'to' for single user
+   //'registration_ids' for multiple users
+    $weburl =  '';
+   //base_url( 'payments/pending' );
+    $message = "You Have Received Amount"." ". $amount." . ".'Please Check Your Wallet.';
+
+    $title = 'Nalavaryam';
+    $body = $message;
+    $icon = 'Nalavaryam';
+    $click_action = $weburl;
+
+    if ( isset( $title ) && !empty( $title ) )
+    {
+     $fields = array(
+         'to'=>$device_id,
+         'notification'=>array(
+             'body'=>$body,
+             'title'=>$title,
+             'icon'=>$icon,
+             'click_action'=>$click_action
+         )
+     );
+       //print_r( $fields );
+       //exit;
+
+     $headers = array(
+         'Authorization: key=AAAABIWWI_c:APA91bGf79FDnwnPw1FgpFkVlryHBvf3F1hhi0uwfRPuZRV7jEKu4Hggezwbl61FBxpkeauYs13Gbmsu5xzZxQcGVKRs7k8LJOUZoUI7fw2QkZGBrzNW_r7192r6DrzV2X269LEzz27M',
+         'Content-Type:application/json'
+     );
+
+     $ch = curl_init();
+     curl_setopt( $ch, CURLOPT_URL, $url );
+     curl_setopt( $ch, CURLOPT_POST, true );
+     curl_setopt( $ch, CURLOPT_HTTPHEADER, $headers );
+     curl_setopt( $ch, CURLOPT_RETURNTRANSFER, true );
+     curl_setopt( $ch, CURLOPT_POSTFIELDS, json_encode( $fields ) );
+     $result = curl_exec( $ch );
+     curl_close( $ch );
+
+       //print_r( $registrationIds );
+ }
+ return redirect( "viewrequestamount" )->with( 'success', 'Request Amount  Successfully' );
+}
+
+public function declinerequest_payment($toid) {
+
+    $sql = "update request_payment set status = 'Declined' where id = $toid";
+    DB::update( DB::raw( $sql ) );
+
+    return redirect( "viewrequestamount" )->with('success', 'Request Amount Declined  Successfully');
+}
+
+public function paymentrequest(Request $request){
+    $from_id = Auth::user()->id;
+    $sql = "select status from request_payment where from_id=$from_id and status='Pending'";
+    $paymentrequest =  DB::select( DB::raw( $sql ));
+    $status ="";
+    if(count($paymentrequest) > 0){
+        $status = $paymentrequest[0]->status;
+    }
+    if($status == 'Pending'){
+
+    } else {
+      $confirm = DB::table('request_payment')->insert([
+          'from_id' => $from_id,
+          'to_id' => $request->to_id,
+          'amount' => $request->amount,
+          'status' => 'Pending',
+          'req_date' => date("Y-m-d"),
+          'req_time' => date("Y-m-d H:i:s"),
+      ]);
+      $insertid = DB::getPdo()->lastInsertId();
+
+      $paid_image = "";
+      if ($request->paid_image != null) {
+          $paid_image = $insertid.'.'.$request->file('paid_image')->extension();
+          $filepath = public_path('upload' . DIRECTORY_SEPARATOR . 'paidimage' . DIRECTORY_SEPARATOR);
+          move_uploaded_file($_FILES['paid_image']['tmp_name'], $filepath . $paid_image);
+      }
+      $image = DB::table('request_payment')->where('id', $insertid)->update([
+          'req_image' => $paid_image,
+      ]);
+
+  }
+
+
+  return redirect( "/viewrequestamount" );
+}
+
+
+
+public function withdrawal()
+{
+    $balance =  WalletHelper::wallet_balance(Auth::user()->username);
+
+    $userid= Auth::user()->id;
+    if(Auth::user()->user_type_id == 1){
+       $withdrawal = DB::table( 'withdrawal' )->orderBy('id','desc')->get();
+   }else{
+       $withdrawal = DB::table( 'withdrawal' )->where( 'userid', $userid)->get();
+   }
+
+   $wallet = DB::table( 'wallet_users' )->select('commission')->where( 'id', $userid)->first();
+   $sql = "select status from withdrawal where userid=$userid and status='Pending'";
+   $paymentrequest =  DB::select( DB::raw( $sql ));
+   $status = "";
+   if(count($paymentrequest) > 0){
+    $status = $paymentrequest[0]->status;
+}
+return view( 'wallet.withdrawal', compact( 'withdrawal','wallet','status','balance') );
+}
+
+public function withdrawalrequest(Request $request){
+    $from_id = Auth::user()->id;
+    $sql = "select status from withdrawal where userid=$from_id and status='Pending'";
+    $paymentrequest =  DB::select( DB::raw( $sql ));
+    $status = "";
+    if(count($paymentrequest) > 0){
+        $status = $paymentrequest[0]->status;
+    }
+    $amount = $request->amount;
+
+    if($status != 'Pending'){
+        $sql = "select username from users where id=$from_id ";
+        $result =  DB::select( DB::raw( $sql ));
+        $username = $result[0]->username;
+        $sql = "update wallet_users set wallet = wallet - $amount,commission = commission - $amount where username = '$username'";
+        DB::update( DB::raw( $sql ) );
+
+        DB::table('withdrawal')->insert([
+          'userid' => $from_id,
+          'amount' => $amount,
+          'remarks' => $request->remarks,
+          'account_name' => $request->account_name,
+          'ifsc_code' => $request->ifsc_code,
+          'account_no' => $request->account_no,
+          'status' => 'Pending',
+          'withdrawal_date' => date("Y-m-d"),
+          'withdrawal_time' => date("H:i:s"),
+      ]);
+
+
+    }
+
+    return redirect( "/withdrawal" )->with('success','Withdrawal Request submitted successfully.');
+}
+
+public function rejectwithdrawal($id)
+{
+    $reject = DB::table( 'withdrawal' )->select('amount','userid')->where( 'id', $id)->first();
+    $sql = "select username from users where id=$reject->userid ";
+    $result =  DB::select( DB::raw( $sql ));
+    $username = $result[0]->username;
+    $sql = "update wallet_users set wallet = wallet + $reject->amount,commission = commission + $reject->amount where username = '$username'";
+    DB::update( DB::raw( $sql ) );
+
+    DB::table( 'withdrawal' )->where( 'id', $id)->delete();
+    return redirect( "/withdrawal" )->with('success','Withdrawal Request Rejected successfully.');
+}
+
+public function acceptwithdrawal(Request $request){
+    $userid = $request->id;
+    DB::table('withdrawal')->where('id', $userid)->update([
+      'status' => 'Completed',
+      'txnid' => $request->txnid,
+      'completed_date' => date("Y-m-d"),
+      'completed_time' => date("H:i:s"),
+  ]);
+
+    return redirect( "/withdrawal" )->with('success','Withdrawal Request Approved successfully.');
+
+}
+
+
+}
